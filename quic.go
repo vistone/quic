@@ -1,3 +1,31 @@
+// Copyright (c) 2025, vistone
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 // Package quic 实现了基于QUIC协议的高性能、可靠的网络连接池管理系统
 package quic
 
@@ -173,6 +201,38 @@ func validateInterval(minIvl, maxIvl time.Duration) (time.Duration, time.Duratio
 		minIvl, maxIvl = maxIvl, minIvl
 	}
 	return minIvl, maxIvl
+}
+
+// min 返回两个整数中的较小值
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// max 返回两个整数中的较大值
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// minDuration 返回两个时间间隔中的较小值
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// maxDuration 返回两个时间间隔中的较大值
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // calculateShardCount 计算所需的分片数量
@@ -579,11 +639,13 @@ func (p *Pool) manageAllShardsClient() {
 				var shardWg sync.WaitGroup
 				results := make(chan int, toCreate)
 				for range toCreate {
-					shardWg.Go(func() {
+					shardWg.Add(1)
+					go func() {
+						defer shardWg.Done()
 						if shard.createStream(p.ctx, p.idChan) {
 							results <- 1
 						}
-					})
+					}()
 				}
 				shardWg.Wait()
 				close(results)
@@ -615,16 +677,12 @@ func (p *Pool) ServerManager() {
 	}
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 
-	// 为每个分片启动独立的监听器
-	var wg sync.WaitGroup
+	// 为每个分片启动独立的监听器（在后台运行，不阻塞）
 	for i := range p.shards {
-		wg.Add(1)
 		go func(shard *Shard) {
-			defer wg.Done()
 			p.manageShardServer(shard)
 		}(p.shards[i])
 	}
-	wg.Wait()
 }
 
 // manageShardServer 管理单个分片的服务端监听和流接收
@@ -801,12 +859,12 @@ func (p *Pool) adjustInterval() {
 	interval := time.Duration(p.interval.Load())
 
 	if idle < int(float64(capacity)*intervalLowThreshold) && interval > p.minIvl {
-		newInterval := max(interval-intervalAdjustStep, p.minIvl)
+		newInterval := maxDuration(interval-intervalAdjustStep, p.minIvl)
 		p.interval.Store(int64(newInterval))
 	}
 
 	if idle > int(float64(capacity)*intervalHighThreshold) && interval < p.maxIvl {
-		newInterval := min(interval+intervalAdjustStep, p.maxIvl)
+		newInterval := minDuration(interval+intervalAdjustStep, p.maxIvl)
 		p.interval.Store(int64(newInterval))
 	}
 }
